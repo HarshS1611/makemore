@@ -22,10 +22,14 @@ DATA
     "emma" becomes the bigrams:  .e  em  mm  ma  a.
 """
 
+import os
+
 import torch
 
+_DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "names.txt")
 
-def read_names(path="names.txt"):
+
+def read_names(path=_DATA_PATH):
     return open(path).read().splitlines()
 
 
