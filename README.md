@@ -10,7 +10,7 @@ Follows Andrej Karpathy's ["makemore" lecture series](https://karpathy.ai/zero-t
 |--------|-------|--------|
 | [`bigram/`](bigram/) | Predicts the next character from only the current one, trained two ways | done |
 | [`mlp/mlp.py`](mlp/mlp.py) | Predicts from a window of 10 previous characters, via a learned embedding | done — dev loss 2.0872 |
-| `mlp/mlp_batchnorm.py` | The same MLP with batch normalization | in progress |
+| [`mlp/mlp_batchnorm.py`](mlp/mlp_batchnorm.py) | The same MLP with batch normalization | done — dev loss 2.0423 |
 
 More folders will be added as later parts of the series are built (RNN, WaveNet, and the eventual transformer version).
 
@@ -150,6 +150,61 @@ Dev loss **2.0872**, test loss 2.0876, down from 2.1480 in the first version (co
 4. **Too many steps.** With the scale restored and a constant learning rate, dev loss was 2.0564 at 80,000 steps and 2.0823 at 200,000 while train loss kept falling to 1.85 (context 8, batch 400): the model starts memorizing the training names. Dev loss is best at roughly 40,000 to 80,000 steps.
 
 The first round of fixes was not in the saved file when the tests were rerun, so the same error appeared a second time. Check that the file on disk actually contains the change before rerunning.
+
+## mlp/ with batch normalization
+
+`mlp/mlp_batchnorm.py` is the same network with batch normalization between the first linear layer and the `tanh`: each hidden unit is normalized across the batch, then given a learned scale (`bngain`) and shift (`bnbias`). There is no `b1`, because subtracting the batch mean right afterwards would cancel it. Running estimates of the mean and variance (momentum 0.001) are used at evaluation time, when a single example has no batch to normalize against. 26,097 learnable parameters; the running statistics are not learned. Training settings are the same as `mlp.py` (batch 400, 20,000 steps, learning rate 0.1 → 0.01 at step 10,000), with `W1` and `W2` at 0.01 × a standard normal.
+
+### Usage
+
+```bash
+python3 mlp/mlp_batchnorm.py             # about 35 seconds
+python3 -m pytest mlp/tests/ -v          # mlp and batchnorm tests together
+```
+
+Output:
+
+```
+dataset : 32,033 names, vocab 27
+examples: train 182,625 | dev 22,655 | test 22,866
+params  : 26,097 learnable
+----------------------------------------
+step      0/20000 | loss 3.3064
+step   2000/20000 | loss 2.2624
+step   4000/20000 | loss 2.1010
+step   6000/20000 | loss 2.0381
+step   8000/20000 | loss 2.0029
+step  10000/20000 | loss 1.9640
+step  12000/20000 | loss 1.9754
+step  14000/20000 | loss 1.9931
+step  16000/20000 | loss 1.9975
+step  18000/20000 | loss 1.8532
+step  19999/20000 | loss 1.8922
+----------------------------------------
+train loss: 1.9627
+dev loss  : 2.0423
+test loss : 2.0396
+```
+
+### Result
+
+Dev loss **2.0423**, test loss 2.0396, against 2.0872 and 2.0876 for the plain MLP. Dev loss over 3 seeds:
+
+| Seed | MLP | MLP + batchnorm |
+|---|---:|---:|
+| default | 2.0872 | 2.0423 |
+| 1 | 2.0877 | 2.0462 |
+| 2 | 2.0889 | 2.0465 |
+| mean | 2.0879 | 2.0450 |
+
+Batchnorm is better on every seed, by about 0.04, while the seeds themselves vary by 0.002 (MLP) and 0.004 (batchnorm). The comparison is not purely batchnorm against none, though: the two files also differ in the scale of `W1`/`W2` (0.01 here, 0.1 in `mlp.py`) and in how the biases start (zeros for `b2` here, a standard normal in `mlp.py`).
+
+Weight scale still matters with batchnorm. At batch 50 with a constant learning rate, 3-seed mean dev loss was 2.1312 with `W1` at 0.01 and 2.1463 with a Kaiming-style scale (`5/3 / sqrt(fan_in)`), so the larger initialization did not help.
+
+### Errors hit along the way
+
+1. **`TypeError: unsupported operand type(s) for *: 'float' and 'NoneType'`** in the update step. A loop that called `requires_grad_(True)` on every entry of `params` also switched it on for `bnmean_running` and `bnvar_running`. Those two are updated by a running average and never receive a gradient, so their `.grad` stayed `None`, and the check `if p.requires_grad` in the training loop no longer skipped them. Fix: enable gradients only on the six learnable tensors (`C`, `W1`, `W2`, `b2`, `bngain`, `bnbias`).
+2. **The same error again**, from `b2 = torch.zeros(..., requires_grad=True) * 0`. Multiplying a tensor that already tracks gradients creates a non-leaf, so its `.grad` is never filled. Fix: create `b2` with plain `torch.zeros` and enable gradients afterwards. This is the same trap as the weights in `mlp.py`; `test_learnable_params_are_trainable_leaves` now checks for it.
 
 ## Data
 
