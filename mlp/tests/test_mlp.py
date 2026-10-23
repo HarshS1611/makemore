@@ -100,7 +100,7 @@ def test_backward_reaches_embedding_table():
 def test_train_loss_decreases():
     stoi, _, (Xtr, Ytr, *_) = _split()
     p = init_params(vocab_size=len(stoi), block_size=BLOCK_SIZE, n_hidden=50)
-    losses = train(p, Xtr, Ytr, steps=300, batch_size=16, lr=0.1)
+    losses = train(p, Xtr, Ytr, steps=300, batch_size=16)
     assert sum(losses[-20:]) / 20 < sum(losses[:20]) / 20
 
 

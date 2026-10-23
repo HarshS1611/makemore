@@ -46,12 +46,12 @@ def split_dataset(words, stoi, block_size=BLOCK_SIZE, seed=42):
 def init_params(vocab_size=27, block_size=BLOCK_SIZE, n_embd=10, n_hidden=200, seed=2147483647):
     gen = lambda: torch.Generator().manual_seed(seed)
     C = torch.randn((vocab_size, n_embd), generator=gen())
-    # scale first, enable gradients after: `randn(requires_grad=True) * s` is not a leaf
-    W1 = torch.randn((block_size * n_embd, n_hidden), generator=gen()) * 0.01
+    W1 = torch.randn((block_size * n_embd, n_hidden), generator=gen()) * 0.1
     b1 = torch.randn((n_hidden,), generator=gen())
-    W2 = torch.randn((n_hidden, vocab_size), generator=gen()) * 0.01
+    W2 = torch.randn((n_hidden, vocab_size), generator=gen()) * 0.1
     b2 = torch.randn((vocab_size,), generator=gen())
     params = {'C': C, 'W1': W1, 'b1': b1, 'W2': W2, 'b2': b2}
+    # enable gradients only after scaling: `randn(requires_grad=True) * s` is not a leaf
     for p in params.values():
         p.requires_grad_(True)
     return params
@@ -66,7 +66,7 @@ def forward(params, X, Y=None):
     return logits, loss
 
 
-def train(params, Xtr, Ytr, steps=20000, batch_size=50, lr=0.1, seed=2147483647, log_every=0):
+def train(params, Xtr, Ytr, steps=20000, batch_size=400, seed=2147483647, log_every=0):
     losses = []
     for step in range(steps):
         g = torch.Generator().manual_seed(seed + step)
@@ -76,6 +76,8 @@ def train(params, Xtr, Ytr, steps=20000, batch_size=50, lr=0.1, seed=2147483647,
         for p in params.values():
             p.grad = None
         loss.backward()
+
+        lr = 0.1 if step < 10000 else 0.01  # lower the learning rate for the second half
         for p in params.values():
             p.data += -lr * p.grad
 
@@ -125,4 +127,5 @@ if __name__ == "__main__":
     print("-" * 40)
     print(f"train loss: {split_loss(params, Xtr, Ytr):.4f}")
     print(f"dev loss  : {split_loss(params, Xdev, Ydev):.4f}")
+    print(f"test loss : {split_loss(params, Xte, Yte):.4f}")
     print("samples:", sample(params, itos, n=10))

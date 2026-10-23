@@ -9,8 +9,8 @@ Follows Andrej Karpathy's ["makemore" lecture series](https://karpathy.ai/zero-t
 | Folder | Model | Status |
 |--------|-------|--------|
 | [`bigram/`](bigram/) | Predicts the next character from only the current one, trained two ways | done |
-| [`mlp/`](mlp/) | Predicts from a window of 10 previous characters, via a learned embedding | done — dev loss 2.1480 |
-| `mlp_batchnorm/` | The same MLP with batch normalization | in progress |
+| [`mlp/mlp.py`](mlp/mlp.py) | Predicts from a window of 10 previous characters, via a learned embedding | done — dev loss 2.0872 |
+| `mlp/mlp_batchnorm.py` | The same MLP with batch normalization | in progress |
 
 More folders will be added as later parts of the series are built (RNN, WaveNet, and the eventual transformer version).
 
@@ -79,12 +79,14 @@ Both land close together, as expected. Sample names generated from the counting 
 
 ## mlp/
 
-Predicts the next character from the previous **10** characters. Each character is looked up in a learned 10-dimensional embedding table, the 10 embeddings are concatenated into one 100-number vector, and a small network (`tanh` hidden layer of 200 units, then a linear layer over the 27 characters) scores the next one. 25,897 parameters. Trained with minibatch gradient descent on a 80/10/10 train/dev/test split.
+Predicts the next character from the previous **10** characters. Each character is looked up in a learned 10-dimensional embedding table, the 10 embeddings are concatenated into one 100-number vector, and a small network (a `tanh` hidden layer of 200 units, then a linear layer over the 27 characters) scores the next one. 25,897 parameters, 80/10/10 train/dev/test split.
+
+Training: minibatch gradient descent, batch size 400, 20,000 steps, learning rate 0.1 for the first 10,000 steps and 0.01 after. `W1` and `W2` start as 0.1 × a standard normal.
 
 ### Usage
 
 ```bash
-python3 mlp/mlp.py          # about 5 seconds
+python3 mlp/mlp.py                       # about 25 seconds
 python3 -m pytest mlp/tests/ -v
 ```
 
@@ -95,47 +97,57 @@ dataset : 32,033 names, vocab 27
 examples: train 182,625 | dev 22,655 | test 22,866
 params  : 25,897
 ----------------------------------------
-step      0/20000 | loss 3.5444
-step   2000/20000 | loss 2.4600
-step   4000/20000 | loss 2.0496
-step   6000/20000 | loss 1.9673
-step   8000/20000 | loss 2.2350
-step  10000/20000 | loss 2.2046
-step  12000/20000 | loss 2.0200
-step  14000/20000 | loss 2.0526
-step  16000/20000 | loss 2.1553
-step  18000/20000 | loss 2.1524
-step  19999/20000 | loss 1.9111
+step      0/20000 | loss 3.9453
+step   2000/20000 | loss 2.1488
+step   4000/20000 | loss 2.1730
+step   6000/20000 | loss 2.1540
+step   8000/20000 | loss 2.1027
+step  10000/20000 | loss 2.0169
+step  12000/20000 | loss 2.0286
+step  14000/20000 | loss 2.0064
+step  16000/20000 | loss 2.0661
+step  18000/20000 | loss 2.1175
+step  19999/20000 | loss 2.0275
 ----------------------------------------
-train loss: 2.1243
-dev loss  : 2.1480
-samples: ['dexber', 'jaleura', 'carvin', 'kelline', 'train', 'luwan', 'kaida', 'samiyah', 'javer', 'gotti']
+train loss: 2.0459
+dev loss  : 2.0872
+test loss : 2.0876
+samples: ['dexber', 'jaliera', 'carityn', 'mellimanna', 'nylany', 'zakiah', 'samiyah', 'javer', 'gotal', 'molie']
 ```
 
-The per-step loss bounces around (2.0 → 2.2 → 1.9) because each step sees only 50 examples; the train and dev numbers at the end are measured on the full splits. Train and dev are close (2.12 vs 2.15), so the model is not overfitting.
+The per-step loss bounces around because each step sees only 400 examples; the train, dev and test numbers at the end are measured on the full splits. Train and dev are close (2.05 vs 2.09), so the model is not overfitting much. Across 3 seeds the dev loss is 2.0872, 2.0877 and 2.0889 (mean 2.0879), so run-to-run variation is under 0.002.
 
 ### Result
 
-Dev loss **2.1480**, below the roughly 2.17 that the lecture's version reaches. The difference comes from two changes to the lecture's setup, measured one at a time (same seed, 20,000 steps, constant learning rate 0.1):
+Dev loss **2.0872**, test loss 2.0876, down from 2.1480 in the first version (context window 10, batch 50, `W` scaled by 0.01, constant learning rate 0.1). That version was already below the roughly 2.17 of the lecture, which used a context of 3.
 
-| Context window | Batch size | Train loss | Dev loss |
+**Context window.** The first big gain came from widening the context. At batch 32 with a constant learning rate (single runs):
+
+| Context window | Batch | Dev loss |
+|---:|---:|---:|
+| 3 | 32 | 2.2457 |
+| 10 | 32 | 2.1675 |
+| 10 | 50 | 2.1480 |
+
+**Batch size, weight scale and learning-rate schedule.** Three settings changed between the first version and the current one. Dev loss for all eight combinations (context 10, 20,000 steps, a single run each). The current settings vary by under 0.002 across seeds, so differences of 0.01 or more are meaningful and smaller ones are noise:
+
+| Batch | `W` scale | Constant lr 0.1 | lr 0.1 → 0.01 at step 10,000 |
 |---:|---:|---:|---:|
-| 3 | 32 | 2.2339 | 2.2457 |
-| 3 | 50 | 2.2220 | 2.2333 |
-| 10 | 32 | 2.1458 | 2.1675 |
-| 10 | 50 | 2.1243 | **2.1480** |
+| 50 | 0.01 | 2.1480 (first version) | 2.1460 |
+| 50 | 0.1 | 2.1393 | 2.1090 |
+| 400 | 0.01 | 2.0799 | 2.1160 |
+| 400 | 0.1 | **2.0706** | 2.0872 (current) |
 
-- **A longer context window is what mattered.** Going from 3 to 10 characters improved dev loss by about 0.08. Run-to-run variation across 3 seeds, measured at a context window of 3, was about 0.007, so this is well outside noise.
-- **A larger batch helped only a little** (about 0.01–0.02), which is close to the noise level, so treat it as probably real but small.
-- Each row is a single run, so the small differences are less certain than the large one.
-
-Not everything helped. At a context window of 3, a smaller bias initialization (dev 2.2401) or dropping the learning rate late in training (2.2202–2.2364) each moved dev loss by under 0.03 on their own.
+- **Batch size 50 → 400 helped most**: 0.02 to 0.07 depending on the other two settings, and about 0.07 with a constant learning rate.
+- **`W` scale 0.01 → 0.1 helped a little** with a constant learning rate (about 0.01) and more once the rate drops (0.03 to 0.04).
+- **The learning-rate drop is not a clear win.** At batch 50 with `W` at 0.1 it helps by 0.03. At batch 400 it makes things worse by 0.02 to 0.04: 10,000 steps at the high rate are not enough, and the model is still improving when the rate drops. The current settings keep the drop and score 2.0872; the same settings with a constant rate score 2.0706.
 
 ### Errors hit along the way
 
 1. **`TypeError: unsupported operand type(s) for *: 'float' and 'NoneType'`** during the update step, with the warning *"The .grad attribute of a Tensor that is not a leaf Tensor is being accessed"*. The weights were created as `torch.randn(..., requires_grad=True) * 0.01`. The multiplication produces a new tensor with a `grad_fn`, so it is not a leaf and `.backward()` never fills its `.grad`. Fix: scale first, then call `requires_grad_(True)` on every parameter.
-2. **`TypeError: 'NoneType' object is not subscriptable`** in the test for decreasing loss. `train()` ran its whole loop but never built or returned the list of losses, so the caller received `None`. Fix: collect `loss.item()` each step and `return losses`. This is the same missing-`return` mistake that showed up in `bigram/`.
-3. **Loss stuck at about 2.24, above the reference.** Nothing was broken, so no error message: with a context window of 3, small initial weights and a constant learning rate, the model simply plateaus higher. Widening the window to 10 fixed it.
+2. **`TypeError: 'NoneType' object is not subscriptable`** in the test for decreasing loss. `train()` ran its whole loop but never built or returned the list of losses, so the caller received `None`. Fix: collect `loss.item()` each step and `return losses`. The same missing-`return` mistake showed up in `bigram/`.
+3. **Loss stuck above 2.2 with no error.** With the weights left unscaled (`torch.randn` with no factor), the starting loss was 33 instead of about 3.3, and `test_forward_loss_near_uniform_at_init` failed. Adding steps looked like progress (dev 2.2480 at 80,000 steps, 2.2047 at 200,000) but it was only the slow-starting model catching up. Scaling the weights fixed it.
+4. **Too many steps.** With the scale restored and a constant learning rate, dev loss was 2.0564 at 80,000 steps and 2.0823 at 200,000 while train loss kept falling to 1.85 (context 8, batch 400): the model starts memorizing the training names. Dev loss is best at roughly 40,000 to 80,000 steps.
 
 The first round of fixes was not in the saved file when the tests were rerun, so the same error appeared a second time. Check that the file on disk actually contains the change before rerunning.
 
