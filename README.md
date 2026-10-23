@@ -28,14 +28,23 @@ The point of comparing them: two completely different training procedures conver
 
 ```bash
 pip install -r requirements.txt
-cd bigram
-python3 bigram.py
+python3 bigram/bigram.py   # about 3 seconds
 ```
 
-```python
-from bigram import build_vocab, count_bigrams, counts_to_probs, sample_counting
+Output:
 
-words = open("../names.txt").read().splitlines()
+```
+counting model loss:         2.4544
+samples: ['cexze', 'momasurailezitynn', 'konimittain', 'llayn', 'ka', 'da', 'staiyaubrtthrigotai', 'moliellavo', 'ke', 'teda']
+gradient descent final loss: 2.4901
+```
+
+Using it from Python (run inside `bigram/`):
+
+```python
+from bigram import read_names, build_vocab, count_bigrams, counts_to_probs, sample_counting
+
+words = read_names()
 stoi, itos = build_vocab(words)
 N = count_bigrams(words, stoi)
 P = counts_to_probs(N)
@@ -57,15 +66,15 @@ On the full dataset:
 | Model | Loss |
 |-------|------|
 | Counting | 2.4544 |
-| Gradient descent | 2.4907 |
+| Gradient descent | 2.4901 |
 
 Both land close together, as expected. Sample names generated from the counting model: `cexze`, `konimittain`, `llayn`, `ka`, `da`, `moliellavo` — recognizably name-shaped fragments, not real names, since the model only ever sees one character of context.
 
 ### Notes from building this
 
-- A count matrix built with a hardcoded shape instead of deriving it from the vocabulary works by coincidence on the exact dataset it was written for, and breaks silently on any other one — the symptom can show up somewhere completely unrelated to the actual bug (a `KeyError` during sampling, caused by an oversized matrix built during counting).
-- In-place tensor operations (`P /= row_sums`) on a tensor computed from itself a line earlier can raise at runtime; writing `P = P / row_sums` instead avoids it.
-- A function with no `return` statement runs its full body and returns `None` — the resulting error appears at the call site, not at the missing line.
+- **Hardcoded shape.** Building the count matrix as a literal `(27, 27)` instead of `(len(stoi), len(stoi))` works on this dataset by coincidence and breaks on any other vocabulary. The errors showed up far from the cause: a size-mismatch error when checking row sums, and a `KeyError` during sampling when the oversized matrix produced an index outside the vocabulary.
+- **Missing `return`.** A function that does all its work but never returns gives back `None`. The error appears at the call site (`cannot unpack NoneType`), not at the missing line.
+- **A stray outer loop.** An extra `for` around the training loop re-initialized the weights every iteration: 100 separate 100-step runs, keeping only the last. The tests still passed, because the result was correct, just 100× too slow. Removing it took the full script from 3 min 43 s to about 3 seconds. Passing tests don't prove the code is efficient.
 
 ## Data
 
